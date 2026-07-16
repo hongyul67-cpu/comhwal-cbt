@@ -50,6 +50,42 @@ function buildExam(counts, minutes) {
   return { qs: qs, idx: 0, minutes: minutes, deadline: 0, timer: null, startTime: Date.now() };
 }
 
+/* ---------- 누적 오답 (회차를 넘어 쌓임) ---------- */
+var WKEY = 'comhwal_cbt_wrong_v1';
+function loadWrong() { try { return JSON.parse(localStorage.getItem(WKEY)) || []; } catch (e) { return []; } }
+function saveWrong(a) { try { localStorage.setItem(WKEY, JSON.stringify(a)); } catch (e) { } }
+function wkey(subj, qtext) { return subj + '|' + String(qtext).slice(0, 60); }
+function recordWrongs(qs) {
+  var list = loadWrong();
+  var map = {}; list.forEach(function (w) { map[wkey(w.subj, w.q)] = w; });
+  qs.forEach(function (q) {
+    var k = wkey(q.subj, q.q);
+    if (q.sel === q.ans) { delete map[k]; }            // 맞히면 목록에서 제거
+    else { map[k] = { subj: q.subj, q: String(q.q).slice(0, 60) }; }
+  });
+  saveWrong(Object.keys(map).map(function (k) { return map[k]; }));
+}
+function reviewPool() {   // 누적 오답 → 실제 문항으로 복원
+  var out = [];
+  loadWrong().forEach(function (w) {
+    var pool = poolOf(w.subj);
+    var src = pool.filter(function (x) { return String(x.q).slice(0, 60) === w.q; })[0];
+    if (src) out.push(src);
+  });
+  return out;
+}
+function startReviewExam() {
+  var pool = reviewPool();
+  if (!pool.length) { alert('복습할 오답이 없어요.'); return; }
+  var mins = Math.max(5, Math.ceil(pool.length * 0.75));
+  exam = { qs: shuffle(pool).map(makeQ), idx: 0, minutes: mins, deadline: 0, timer: null, startTime: Date.now(), isReview: true };
+  exam.deadline = Date.now() + mins * 60000;
+  hide('start'); hide('result'); hide('review'); show('exam');
+  $('totalCnt').textContent = exam.qs.length;
+  startTimer();
+  renderQ();
+}
+
 /* ---------- 시작 화면 ---------- */
 var MODES = [
   { nm: '실전 모의고사', ds: '60문항 · 60분 · 3과목', counts: { comp: 20, excel: 20, access: 20 }, min: 60 },
@@ -59,8 +95,20 @@ var MODES = [
   { nm: '데이터베이스만', ds: '20문항 · 20분', counts: { access: 20 }, min: 20 },
 ];
 function renderStart() {
-  hide('loading'); show('start');
+  hide('loading'); hide('exam'); hide('result'); hide('review'); show('start');
   var box = $('modeList'); box.innerHTML = '';
+  // 누적 오답이 있으면 맨 위에 복습 카드
+  var wn = loadWrong().length;
+  if (wn) {
+    var rv = document.createElement('div');
+    rv.className = 'modecard';
+    rv.style.borderColor = 'var(--warn)';
+    rv.innerHTML = '<div><div class="nm">🔁 오답 다시 풀기</div>' +
+      '<div class="ds">회차를 넘어 쌓인 <b style="color:var(--warn)">' + wn + '문항</b> · 맞히면 목록에서 빠져요</div></div>' +
+      '<div style="color:var(--warn);font-weight:800">▶</div>';
+    rv.onclick = function () { startReviewExam(); };
+    box.appendChild(rv);
+  }
   MODES.forEach(function (m, i) {
     var el = document.createElement('div');
     el.className = 'modecard';
@@ -183,14 +231,17 @@ function doSubmit(auto) {
   closePalette();
   exam.result = grade();
   exam.durationSec = Math.round((Date.now() - exam.startTime) / 1000);
+  recordWrongs(exam.qs);          // 누적 오답 갱신(맞힌 건 제거, 틀린 건 추가)
   showResult(auto);
 }
 
 function showResult(auto) {
   hide('exam'); hide('review'); show('result');
   var r = exam.result;
-  var verdict = r.pass ? '합격' : '불합격';
-  var emoji = r.pass ? '🎉' : '💪';
+  // 오답 복습 회차는 합격/불합격 판정 대신 정답률만 보여줌
+  var isRev = !!exam.isReview;
+  var verdict = isRev ? (r.totalCorrect + ' / ' + r.totalQ) : (r.pass ? '합격' : '불합격');
+  var emoji = isRev ? (r.avg >= 80 ? '🎉' : '💪') : (r.pass ? '🎉' : '💪');
   var ss = r.scores.map(function (x) {
     var failMark = x.score < FAIL_UNDER ? '<div class="flag">과락</div>' : '';
     return '<div class="ss"><div class="nm">' + x.name + '</div>' +
@@ -202,11 +253,12 @@ function showResult(auto) {
   $('result').innerHTML =
     '<div class="result">' + sub +
       '<div style="font-size:48px">' + emoji + '</div>' +
-      '<div class="verdict ' + (r.pass ? 'pass' : 'fail') + '">' + verdict + '</div>' +
-      '<div class="totscore">평균 <b style="color:var(--tx)">' + r.avg + '점</b> · 정답 ' + r.totalCorrect + '/' + r.totalQ +
+      '<div class="verdict ' + (isRev ? (r.avg >= 60 ? 'pass' : 'fail') : (r.pass ? 'pass' : 'fail')) + '">' + verdict + '</div>' +
+      '<div class="totscore">' + (isRev ? '오답 복습' : '평균') + ' <b style="color:var(--tx)">' + r.avg + '점</b> · 정답 ' + r.totalCorrect + '/' + r.totalQ +
         ' · 소요 ' + Math.floor(exam.durationSec / 60) + '분</div>' +
+      (isRev ? '<div style="color:var(--tx2);font-size:13px;margin:6px 0">맞힌 문제는 오답 목록에서 빠졌어요 · 남은 오답 <b style="color:var(--warn)">' + loadWrong().length + '문항</b></div>' : '') +
       '<div class="subjscores">' + ss + '</div>' +
-      (r.hasFail ? '<div style="color:var(--no);font-size:13px;margin-bottom:8px">한 과목 이상 40점 미만(과락)입니다.</div>' : '') +
+      (!isRev && r.hasFail ? '<div style="color:var(--no);font-size:13px;margin-bottom:8px">한 과목 이상 40점 미만(과락)입니다.</div>' : '') +
       submitBtnHtml() +
       '<div class="row" style="justify-content:center;margin-top:8px;flex-wrap:wrap">' +
         '<button class="btn sec" onclick="openReview()">📝 오답노트 (' + wrongN + ')</button>' +
