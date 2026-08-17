@@ -249,6 +249,8 @@ function showResult(auto) {
       '<div class="nm">' + x.correct + '/' + x.total + '</div>' + failMark + '</div>';
   }).join('');
   var wrongN = r.totalQ - r.totalCorrect;
+  /* 랭킹전 — 채점 후 RP 정산 (평균 점수 기준) */
+  if (window.RankKit) RankKit.award(Math.round(r.avg || (r.totalCorrect / r.totalQ * 100)), '컴활 1급 필기');
   var sub = auto ? '<div style="color:var(--no);font-size:13px;margin-bottom:6px">⏰ 시간 종료로 자동 제출됨</div>' : '';
   $('result').innerHTML =
     '<div class="result">' + sub +
