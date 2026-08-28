@@ -78,7 +78,7 @@ function startReviewExam() {
   var pool = reviewPool();
   if (!pool.length) { alert('복습할 오답이 없어요.'); return; }
   var mins = Math.max(5, Math.ceil(pool.length * 0.75));
-  exam = { qs: shuffle(pool).map(makeQ), idx: 0, minutes: mins, deadline: 0, timer: null, startTime: Date.now(), isReview: true };
+  exam = { qs: shuffle(pool).map(makeQ), idx: 0, minutes: mins, deadline: 0, timer: null, startTime: Date.now(), isReview: true, title: '오답 다시 풀기' };
   exam.deadline = Date.now() + mins * 60000;
   hide('start'); hide('result'); hide('review'); show('exam');
   $('totalCnt').textContent = exam.qs.length;
@@ -122,6 +122,7 @@ function renderStart() {
 /* ---------- 시험 진행 ---------- */
 function startExam(m) {
   exam = buildExam(m.counts, m.min);
+  exam.title = m.nm;                 // 활동 이름(실전/하프/과목별) — 시트의 '활동' 열과 루브릭 판정에 쓰인다
   if (!exam.qs.length) { alert('문제를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.'); return; }
   exam.deadline = Date.now() + m.min * 60000;
   hide('start'); hide('result'); hide('review'); show('exam');
@@ -315,7 +316,8 @@ function submitResult() {
     total: r.totalQ,
     durationSec: exam.durationSec,
     labels: { score: '평균점수', correct: '맞힘', total: '문항수' },
-    mode: '컴활 1급 필기 — ' + (exam.title || '모의고사') + (r.pass ? ' (합격)' : ' (불합격)'),
+    mode: '컴활 1급 필기 — ' + (exam.title || '모의고사') +
+          (exam.isReview ? ' (복습)' : (r.pass ? ' (합격)' : ' (불합격)')),
     extra: ['필기 모의고사 응시'],
     wrong: rcWrongList(),
   });
